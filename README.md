@@ -10,6 +10,14 @@ It was designed as a simple lightweight library, combining features of many stea
 and SteamGuard file(no need to extract and pass sessionID and webCookie).
 `steampy` is developed with Python 3 using type hints and many other features its supported for Windows, Linux and MacOs.
 
+### 安装
+
+```bash
+git clone https://github.com/timeobject/steampy.git
+cd steampy
+pip3 install .
+```
+
 Table of Content
 ================
 

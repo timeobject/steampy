@@ -50,7 +50,10 @@ class ConfirmationExecutor:
         params['cid'] = confirmation.data_confid
         params['ck'] = confirmation.data_key
         headers = {'X-Requested-With': 'XMLHttpRequest'}
-        return self._session.get(self.CONF_URL + '/ajaxop', params=params, headers=headers).json()
+        response = self._session.get(self.CONF_URL + '/ajaxop', params=params, headers=headers)
+        if(response.status_code != 200):
+            raise requests.exceptions.RequestException(f'status_code {response.status_code}')
+        return response.json()
 
     def _get_confirmations(self) -> List[Confirmation]:
         confirmations = []
@@ -70,6 +73,8 @@ class ConfirmationExecutor:
         params = self._create_confirmation_params(tag)
         headers = {'X-Requested-With': 'com.valvesoftware.android.steam.community'}
         response = self._session.get(self.CONF_URL + '/conf', params=params, headers=headers)
+        if(response.status_code != 200):
+            raise requests.exceptions.RequestException(f'status_code {response.status_code}')
         if 'Steam Guard Mobile Authenticator is providing incorrect Steam Guard codes.' in response.text:
             raise InvalidCredentials('Invalid Steam Guard file')
         return response
@@ -78,6 +83,8 @@ class ConfirmationExecutor:
         tag = 'details' + confirmation.id
         params = self._create_confirmation_params(tag)
         response = self._session.get(self.CONF_URL + '/details/' + confirmation.id, params=params)
+        if(response.status_code != 200):
+            raise requests.exceptions.RequestException(f'status_code {response.status_code}')
         return response.json()['html']
 
     def _create_confirmation_params(self, tag_string: str) -> dict:

@@ -9,17 +9,6 @@ from steampy.models import Currency, SteamUrl, GameOptions
 from steampy.utils import text_between, get_listing_id_to_assets_address_from_html, get_market_listings_from_html, \
     merge_items_with_descriptions_from_listing, get_market_sell_listings_from_api
 
-
-def login_required(func):
-    def func_wrapper(self, *args, **kwargs):
-        if not self.was_login_executed:
-            raise LoginRequired('Use login method first on SteamClient')
-        else:
-            return func(self, *args, **kwargs)
-
-    return func_wrapper
-
-
 class SteamMarket:
     def __init__(self, session: Session):
         self._session = session
@@ -43,7 +32,6 @@ class SteamMarket:
             raise TooManyRequests("You can fetch maximum 20 prices in 60s period")
         return response.json()
 
-    @login_required
     def fetch_price_history(self, item_hash_name: str, game: GameOptions) -> dict:
         url = SteamUrl.COMMUNITY_URL + '/market/pricehistory/'
         params = {'country': 'PL',
@@ -54,7 +42,6 @@ class SteamMarket:
             raise TooManyRequests("You can fetch maximum 20 prices in 60s period")
         return response.json()
 
-    @login_required
     def get_my_market_listings(self) -> dict:
         response = self._session.get("%s/market" % SteamUrl.COMMUNITY_URL)
         if response.status_code != 200:
@@ -92,7 +79,6 @@ class SteamMarket:
                     listings["sell_listings"] = {**listings["sell_listings"], **listings_2["sell_listings"]}
         return listings
 
-    @login_required
     def create_sell_order(self, assetid: str, game: GameOptions, money_to_receive: str) -> dict:
         data = {
             "assetid": assetid,
@@ -108,8 +94,7 @@ class SteamMarket:
             return self._confirm_sell_listing(assetid)
         return response
 
-    @login_required
-    def create_buy_order(self, market_name: str, price_single_item: str, quantity: int, game: GameOptions,
+    def create_buy_order(self, market_name: str, price_single_item: str, quantity: int, game: GameOptions = GameOptions.CS,
                          currency: Currency = Currency.USD) -> dict:
         data = {
             "sessionid": self._session_id,
@@ -119,8 +104,11 @@ class SteamMarket:
             "price_total": str(Decimal(price_single_item) * Decimal(quantity)),
             "quantity": quantity
         }
+        market_name = urllib.parse.quote(market_name)
+        url_market_hash_name = market_name.replace("(", "%28")
+        url_market_hash_name = url_market_hash_name.replace(")", "%29")
         headers = {'Referer': "%s/market/listings/%s/%s" % (SteamUrl.COMMUNITY_URL, game.app_id, 
-                                                            urllib.parse.quote(market_name))}
+                                                            url_market_hash_name)}
         response = self._session.post(SteamUrl.COMMUNITY_URL + "/market/createbuyorder/", data,
                                       headers=headers).json()
         if response.get("success") != 1:
@@ -128,7 +116,6 @@ class SteamMarket:
                                % response.get("success"))
         return response
 
-    @login_required
     def buy_item(self, market_name: str, market_id: str, price: int, fee: int, game: GameOptions,
                  currency: Currency = Currency.USD) -> dict:
         data = {
@@ -152,7 +139,6 @@ class SteamMarket:
                                % response.get("message"))
         return response
 
-    @login_required
     def cancel_sell_order(self, sell_listing_id: str) -> None:
         data = {"sessionid": self._session_id}
         headers = {'Referer': SteamUrl.COMMUNITY_URL + "/market/"}
@@ -161,7 +147,6 @@ class SteamMarket:
         if response.status_code != 200:
             raise ApiException("There was a problem removing the listing. http code: %s" % response.status_code)
 
-    @login_required
     def cancel_buy_order(self, buy_order_id) -> dict:
         data = {
             "sessionid": self._session_id,
