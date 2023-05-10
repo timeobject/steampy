@@ -1,5 +1,6 @@
 import urllib.parse
 import json
+import requests
 
 from decimal import Decimal
 from requests import Session
@@ -10,16 +11,12 @@ from steampy.utils import text_between, get_listing_id_to_assets_address_from_ht
     merge_items_with_descriptions_from_listing, get_market_sell_listings_from_api
 
 class SteamMarket:
-    def __init__(self, session: Session):
+    def __init__(self, steam_guard, session: Session):
         self._session = session
-        self._steam_guard = None
-        self._session_id = None
-        self.was_login_executed = False
+        self._steam_guard = steam_guard
 
-    def _set_login_executed(self, steamguard: dict, session_id: str):
-        self._steam_guard = steamguard
-        self._session_id = session_id
-        self.was_login_executed = True
+    def _get_session_id(self) -> str:
+        return self._session.cookies.get_dict()['sessionid']
 
     def fetch_price(self, item_hash_name: str, game: GameOptions, currency: str = Currency.USD) -> dict:
         url = SteamUrl.COMMUNITY_URL + '/market/priceoverview/'
@@ -44,8 +41,8 @@ class SteamMarket:
 
     def get_my_market_listings(self) -> dict:
         response = self._session.get("%s/market" % SteamUrl.COMMUNITY_URL)
-        if response.status_code != 200:
-            raise ApiException("There was a problem getting the listings. http code: %s" % response.status_code)
+        if(response.status_code != 200):
+            raise requests.exceptions.RequestException(f'status_code {response.status_code}')
         assets_descriptions = json.loads(text_between(response.text, "var g_rgAssets = ", ";\r\n"))
         listing_id_to_assets_address = get_listing_id_to_assets_address_from_html(response.text)
         listings = get_market_listings_from_html(response.text)
@@ -82,7 +79,7 @@ class SteamMarket:
     def create_sell_order(self, assetid: str, game: GameOptions, money_to_receive: str) -> dict:
         data = {
             "assetid": assetid,
-            "sessionid": self._session_id,
+            "sessionid": self._get_session_id(),
             "contextid": game.context_id,
             "appid": game.app_id,
             "amount": 1,
@@ -97,12 +94,13 @@ class SteamMarket:
     def create_buy_order(self, market_name: str, price_single_item: str, quantity: int, game: GameOptions = GameOptions.CS,
                          currency: Currency = Currency.USD) -> dict:
         data = {
-            "sessionid": self._session_id,
+            "sessionid": self._get_session_id(),
             "currency": currency.value,
             "appid": game.app_id,
             "market_hash_name": market_name,
             "price_total": str(Decimal(price_single_item) * Decimal(quantity)),
-            "quantity": quantity
+            "quantity": quantity,
+            "billing_state": "OR"
         }
         market_name = urllib.parse.quote(market_name)
         url_market_hash_name = market_name.replace("(", "%28")
@@ -110,16 +108,19 @@ class SteamMarket:
         headers = {'Referer': "%s/market/listings/%s/%s" % (SteamUrl.COMMUNITY_URL, game.app_id, 
                                                             url_market_hash_name)}
         response = self._session.post(SteamUrl.COMMUNITY_URL + "/market/createbuyorder/", data,
-                                      headers=headers).json()
-        if response.get("success") != 1:
+                                      headers=headers)
+        if(response.status_code != 200):
+            raise requests.exceptions.RequestException(f'status_code {response.status_code}')
+        response = response.json()
+        if response["success"] != 1:
             raise ApiException("There was a problem creating the order. Are you using the right currency? success: %s"
-                               % response.get("success"))
+                               % response["success"])
         return response
 
     def buy_item(self, market_name: str, market_id: str, price: int, fee: int, game: GameOptions,
                  currency: Currency = Currency.USD) -> dict:
         data = {
-            "sessionid": self._session_id,
+            "sessionid": self._get_session_id(),
             "currency": currency.value,
             "subtotal" : price - fee,
             "fee" : fee,
@@ -140,7 +141,7 @@ class SteamMarket:
         return response
 
     def cancel_sell_order(self, sell_listing_id: str) -> None:
-        data = {"sessionid": self._session_id}
+        data = {"sessionid": self._get_session_id()}
         headers = {'Referer': SteamUrl.COMMUNITY_URL + "/market/"}
         url = "%s/market/removelisting/%s" % (SteamUrl.COMMUNITY_URL, sell_listing_id)
         response = self._session.post(url, data=data, headers=headers)
@@ -149,7 +150,7 @@ class SteamMarket:
 
     def cancel_buy_order(self, buy_order_id) -> dict:
         data = {
-            "sessionid": self._session_id,
+            "sessionid": self._get_session_id(),
             "buy_orderid": buy_order_id
         }
         headers = {"Referer": SteamUrl.COMMUNITY_URL + "/market"}

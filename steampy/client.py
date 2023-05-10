@@ -18,20 +18,21 @@ from steampy.utils import text_between, texts_between, merge_items_with_descript
     merge_items_with_descriptions_from_offer, account_id_to_steam_id, get_key_value_from_url, parse_price
 
 class SteamClient:
-    def __init__(self, api_key: str, steam_cookie, steam_guard, proxies_host, proxies_port, timeout=10) -> None:
-        self._api_key = api_key
+    def __init__(self, username: str, password: str, api_key: str, steam_guard, proxies_host, proxies_port, timeout=10) -> None:
         self._proxies = {'http': '', "https": ''}
         if len(proxies_host) > 0:
             self._proxies = {'http': f'http://{proxies_host}:{proxies_port}', "https": f'http://{proxies_host}:{proxies_port}'}
         self._session = requests.Session()
         self._session.proxies = self._proxies
-        cookies = dict(map(lambda x:x.split('='), steam_cookie.split(";")))
-        for k,v in cookies.items():
-              self._session.cookies.set(k.strip(), v.strip())
+        self._api_key = api_key
+        self.username = username
+        self.password = password
         self.steam_guard = steam_guard
-        self.was_login_executed = True
-        self.market = SteamMarket(self._session)
+        self.market = SteamMarket(self.steam_guard, self._session)
         self.chat = SteamChat(self._session)
+
+    def login(self):
+        LoginExecutor(self.username, self.password, self.steam_guard['shared_secret'], self._session).login()
 
     def is_session_alive(self):
         steam_login = self.username
@@ -64,7 +65,10 @@ class SteamClient:
         url = '/'.join([SteamUrl.COMMUNITY_URL, 'inventory', partner_steam_id, game.app_id, game.context_id])
         params = {'l': 'english',
                   'count': count}
-        response_dict = self._session.get(url, params=params).json()
+        response = self._session.get(url, params=params)
+        if(response.status_code != 200):
+            raise requests.exceptions.RequestException(f'status_code {response.status_code}')
+        response_dict = response.json()
         if response_dict['success'] != 1:
             raise ApiException('Success value should be 1.')
         if merge:
@@ -173,7 +177,12 @@ class SteamClient:
         offer_response_text = response.text
         if 'You have logged in from a new device. In order to protect the items' in offer_response_text:
             raise SevenDaysHoldException("Account has logged in a new device and can't trade for 7 days")
-        return text_between(offer_response_text, "var g_ulTradePartnerSteamID = '", "';")
+        data = ''
+        try:
+            data = text_between(offer_response_text, "var g_ulTradePartnerSteamID = '", "';")
+        except:
+            print(data)
+        return data
 
     def _confirm_transaction(self, trade_offer_id: str) -> dict:
         confirmation_executor = ConfirmationExecutor(self.steam_guard['identity_secret'], self.steam_guard['steamid'],
@@ -275,7 +284,10 @@ class SteamClient:
         }
         headers = {'Referer': SteamUrl.COMMUNITY_URL + urlparse.urlparse(trade_offer_url).path,
                    'Origin': SteamUrl.COMMUNITY_URL}
-        response = self._session.post(url, data=params, headers=headers).json()
+        response = self._session.post(url, data=params, headers=headers)
+        if(response.status_code != 200):
+            raise requests.exceptions.RequestException(f'status_code {response.status_code}')
+        response = response.json()
         if response.get('needs_mobile_confirmation'):
             response.update(self._confirm_transaction(response['tradeofferid']))
         return response
@@ -285,7 +297,7 @@ class SteamClient:
         return SteamUrl.COMMUNITY_URL + '/tradeoffer/' + trade_offer_id
 
     def get_wallet_balance(self, convert_to_decimal: bool = True) -> Union[str, decimal.Decimal]:
-        url = SteamUrl.STORE_URL + '/account/history/'
+        url = SteamUrl.COMMUNITY_URL + '/market'
         response = self._session.get(url)
         response_soup = bs4.BeautifulSoup(response.text, "html.parser")
         balance = response_soup.find(id='header_wallet_balance').string

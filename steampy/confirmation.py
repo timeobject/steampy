@@ -85,7 +85,13 @@ class ConfirmationExecutor:
         response = self._session.get(self.CONF_URL + '/details/' + confirmation.id, params=params)
         if(response.status_code != 200):
             raise requests.exceptions.RequestException(f'status_code {response.status_code}')
-        return response.json()['html']
+        data = response.json()
+        html = ''
+        try:
+            html = data['html']
+        except:
+            print(data)
+        return html
 
     def _create_confirmation_params(self, tag_string: str) -> dict:
         timestamp = int(time.time())
